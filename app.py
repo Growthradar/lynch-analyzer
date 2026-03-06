@@ -2,91 +2,79 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-# إعدادات الصفحة
-st.set_page_config(page_title="محلل بيتر لينش الذكي", layout="wide")
+st.set_page_config(page_title="محلل بيتر لينش التفصيلي", layout="centered")
 
-st.title("📈 أداة تحليل الأسهم وفق معايير بيتر لينش")
-st.write("قم بإدخال رمز السهم (مثلاً: 2222.SE للأسهم السعودية أو AAPL للأمريكية)")
+st.title("🔬 التقييم التحليلي الدقيق (منهج بيتر لينش)")
+st.write("أدخل رمز السهم للحصول على تقييم لكل مؤشر مالي على حدة.")
 
-# مدخلات المستخدم
-ticker_input = st.text_input("رمز السهم", value="2222.SE")
+ticker_symbol = st.text_input("رمز السهم (مثال: 1120.SE أو AAPL)", value="2222.SE")
 
-if st.button("تحليل السهم"):
-    with st.spinner('جاري جلب البيانات من Yahoo Finance...'):
+if st.button("بدء التقييم التفصيلي"):
+    with st.spinner('جاري فحص القوائم المالية...'):
         try:
-            stock = yf.Ticker(ticker_input)
+            stock = yf.Ticker(ticker_symbol)
             info = stock.info
             
-            # استخراج المؤشرات الأساسية
-            peg = info.get('pegRatio', 0)
-            de_ratio = info.get('debtToEquity', 0)
-            inst_own = info.get('heldPercentInstitutions', 0) * 100
-            eps_growth = info.get('earningsQuarterlyGrowth', 0) * 100
-            current_price = info.get('currentPrice', 0)
-            
-            # --- منطق حساب النقاط (100 نقطة) ---
-            score = 0
-            analysis_log = []
+            # مصفوفة لتخزين النقاط والتقييمات
+            results = []
+            total_score = 0
 
-            # 1. اختبار PEG (30 نقطة)
-            if 0 < peg < 1:
-                score += 30
-                analysis_log.append("✅ نسبة PEG ممتازة (أقل من 1)")
-            elif peg >= 1:
-                analysis_log.append("❌ السهم متضخم سعرياً مقارنة بنموه (PEG > 1)")
-
-            # 2. اختبار الديون (20 نقطة)
-            if 0 < de_ratio < 35:
-                score += 20
-                analysis_log.append("✅ ميزانية قوية جداً (ديون منخفضة)")
+            # --- 1. تقييم نسبة PEG (النمو مقابل السعر) ---
+            peg = info.get('pegRatio')
+            if peg is not None:
+                if peg < 0.5: pts, msg, status = 25, "ممتاز جداً: نمو هائل بسعر رخيص", "Success"
+                elif peg < 1.0: pts, msg, status = 20, "جيد: السعر عادل مقارنة بالنمو", "Success"
+                elif peg < 1.5: pts, msg, status = 10, "مقبول: السعر مرتفع قليلاً", "Warning"
+                else: pts, msg, status = 0, "سيء: السعر مبالغ فيه جداً", "Error"
+                results.append(["نسبة PEG", peg, pts, msg, status])
+                total_score += pts
             else:
-                analysis_log.append("⚠️ تنبيه: الديون مرتفعة أو غير واضحة")
+                results.append(["نسبة PEG", "غير متوفر", 0, "لا يمكن تقييم السعر دون بيانات النمو", "Off"])
 
-            # 3. الملكية المؤسسية (20 نقطة) - شرط لينش (الأقل أفضل)
-            if inst_own < 30:
-                score += 20
-                analysis_log.append("✅ السهم 'مخفي' عن المؤسسات الكبرى (فرصة اكتشاف)")
-            else:
-                analysis_log.append("ℹ️ السهم مملوك بكثافة للمؤسسات")
+            # --- 2. تقييم الملاءة المالية (الديون) ---
+            de = info.get('debtToEquity')
+            if de is not None:
+                if de < 35: pts, msg, status = 20, "ممتاز: ديون منخفضة جداً (أمان عالي)", "Success"
+                elif de < 50: pts, msg, status = 10, "مقبول: ديون معتدلة", "Warning"
+                else: pts, msg, status = 0, "خطر: ديون مرتفعة قد ترهق الشركة", "Error"
+                results.append(["نسبة الدين/الملكية", f"{de}%", pts, msg, status])
+                total_score += pts
 
-            # 4. نمو الأرباح (30 نقطة)
-            if 15 <= eps_growth <= 25:
-                score += 30
-                analysis_log.append("✅ نمو أرباح مستدام ومثالي (15% - 25%)")
-            elif eps_growth > 25:
-                score += 15
-                analysis_log.append("⚠️ نمو سريع جداً قد لا يستمر")
+            # --- 3. تقييم ملكية المؤسسات (شرط السهم المخفي) ---
+            inst = info.get('heldPercentInstitutions', 0) * 100
+            if inst > 0:
+                if inst < 30: pts, msg, status = 15, "مثالي: المؤسسات لم تكتشف السهم بعد", "Success"
+                elif inst < 60: pts, msg, status = 10, "متوسط: السهم بدأ يحظى باهتمام الصناديق", "Warning"
+                else: pts, msg, status = 5, "مزدحم: معظم الصناديق تملكه بالفعل", "Info"
+                results.append(["ملكية المؤسسات", f"{inst:.1f}%", pts, msg, status])
+                total_score += pts
 
-            # --- عرض النتائج ---
-            col1, col2 = st.columns([1, 2])
+            # --- 4. استدامة نمو الأرباح (EPS Growth) ---
+            growth = info.get('earningsQuarterlyGrowth', 0) * 100
+            if growth != 0:
+                if 15 <= growth <= 30: pts, msg, status = 25, "مثالي: نمو مستدام وقوي", "Success"
+                elif growth > 30: pts, msg, status = 15, "تنبيه: نمو سريع جداً قد يكون طفرة مؤقتة", "Warning"
+                elif 0 < growth < 15: pts, msg, status = 10, "بطيء: نمو أقل من طموحات لينش", "Info"
+                else: pts, msg, status = 0, "سيء: أرباح متراجعة", "Error"
+                results.append(["نمو الأرباح", f"{growth:.1f}%", pts, msg, status])
+                total_score += pts
+
+            # --- عرض النتائج بشكل منفصل ---
+            st.subheader(f"النتيجة الإجمالية: {total_score}/85") # 85 هي مجموع النقاط المتاحة آلياً
             
-            with col1:
-                st.metric("إجمالي النقاط", f"{score}/100")
-                if score >= 80: st.success("تصنيف: سهم نمو بامتياز (Tenbagger)")
-                elif score >= 50: st.warning("تصنيف: سهم جيد للمراقبة")
-                else: st.error("تصنيف: مخاطرة عالية / لا يطابق المعايير")
-            
-            with col2:
-                st.subheader("تقرير التحليل الميداني:")
-                for item in analysis_log:
-                    st.write(item)
+            for res in results:
+                with st.expander(f"🔍 فحص {res[0]}: {res[1]}", expanded=True):
+                    col_a, col_b = st.columns([1, 4])
+                    col_a.metric("النقاط", f"+{res[2]}")
+                    if res[4] == "Success": st.success(res[3])
+                    elif res[4] == "Warning": st.warning(res[3])
+                    elif res[4] == "Error": st.error(res[3])
+                    else: st.info(res[3])
 
-            # عرض جدول البيانات الخام
+            # نصيحة التقييم النوعي (التي لا تظهر في الأرقام)
             st.divider()
-            st.subheader("بيانات السهم الحالية")
-            st.json({
-                "السعر الحالي": current_price,
-                "نسبة PEG": peg,
-                "الدين إلى حقوق الملكية": de_ratio,
-                "ملكية المؤسسات %": inst_own,
-                "نمو الأرباح الربع سنوي %": eps_growth
-            })
+            st.subheader("💡 خطوات التقييم اليدوي (تكملة لينش)")
+            st.info("البيانات أعلاه رقمية فقط. لينش يشترط أيضاً: \n1. هل تفهم عمل الشركة؟ \n2. هل الاسم ممل؟ \n3. هل يشتري المطلعون (المدراء) أسهمهم الآن؟")
 
         except Exception as e:
-            st.error(f"حدث خطأ في جلب البيانات: {e}")
-            st.info("تأكد من كتابة الرمز بشكل صحيح (مثال للأسهم السعودية: 1120.SE لراجحي)")
-
-st.sidebar.info("""
-**ملاحظة:** 
-تعتمد هذه الأداة على بيانات Yahoo Finance. للأسهم السعودية، يتم تحديث البيانات المالية دورياً من تداول، ولكن يفضل دائماً مطابقتها مع موقع 'أرقام' للتأكد من ملكية كبار الملاك بدقة.
-""")
+            st.error(f"حدث خطأ أثناء تحليل {ticker_symbol}. تأكد من صحة الرمز.")
