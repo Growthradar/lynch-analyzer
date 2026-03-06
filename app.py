@@ -2,104 +2,88 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-# إعدادات الصفحة
-st.set_page_config(page_title="محلل بيتر لينش", layout="wide")
-st.title("📊 نظام تقييم أسهم النمو - معايير بيتر لينش")
+# 1. إعدادات الواجهة والألوان (Neon Green & Black)
+st.set_page_config(page_title="Lynch Neon Pro", layout="wide")
 
-# مدخل السهم
-ticker_raw = st.text_input("أدخل رمز السهم (مثال: 7010 أو AAPL)", value="7010")
-ticker = f"{ticker_raw}.SR" if (ticker_raw.isdigit() and len(ticker_raw) == 4) else ticker_raw
+st.markdown("""
+    <style>
+    .main { background-color: #000000; }
+    .stApp { background-color: #000000; color: #39FF14; }
+    h1, h2, h3 { color: #39FF14 !important; font-family: 'Courier New', Courier, monospace; text-shadow: 0 0 10px #39FF14; }
+    .stTextInput>div>div>input { background-color: #111; color: #39FF14; border: 1px solid #39FF14; }
+    .stButton>button { background-color: #000; color: #39FF14; border: 2px solid #39FF14; width: 100%; border-radius: 10px; transition: 0.3s; }
+    .stButton>button:hover { background-color: #39FF14; color: #000; box-shadow: 0 0 20px #39FF14; }
+    .metric-card { background-color: #111; border: 1px solid #333; padding: 20px; border-radius: 15px; margin-bottom: 20px; border-left: 5px solid #39FF14; }
+    .metric-title { font-size: 1.2rem; font-weight: bold; color: #39FF14; }
+    .metric-value { font-size: 2rem; color: #ffffff; }
+    .explanation { font-size: 0.9rem; color: #888; margin-top: 10px; border-top: 1px solid #222; padding-top: 10px; }
+    .goal { color: #39FF14; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
 
-if st.button("تحليل السهم"):
+st.title("⚡ نظام تحليل بيتر لينش المتطور")
+st.write("---")
+
+# 2. إدخال البيانات
+col_input, col_info = st.columns([1, 2])
+with col_input:
+    ticker_raw = st.text_input("أدخل رمز السهم (مثال: 7010)", value="7010")
+    ticker = f"{ticker_raw}.SR" if (ticker_raw.isdigit() and len(ticker_raw) == 4) else ticker_raw
+    analyze_btn = st.button("تفعيل فحص النمو 🚀")
+
+# 3. منطق التحليل المالي
+if analyze_btn:
     try:
-        with st.spinner('جاري معالجة البيانات المالية...'):
+        with st.spinner('📡 جاري سحب البيانات من السحابة المالية...'):
             stock = yf.Ticker(ticker)
             income = stock.financials
             balance = stock.balance_sheet
             cf = stock.cashflow
             info = stock.info
 
-            # دالة لاستخراج القيم بأمان
-            def safe_get(df, label):
-                if df is not None and label in df.index:
-                    val = df.loc[label]
-                    return val.iloc[0] if hasattr(val, 'iloc') else val
-                return 0
+            def get_f(df, label): return df.loc[label].iloc[0] if (df is not None and label in df.index) else 0
 
-            # 1. حساب نمو الأرباح (متوسط آخر 3 سنوات)
-            net_inc = income.loc['Net Income'] if 'Net Income' in income.index else None
-            eps_growth = (net_inc.pct_change(periods=-1).dropna().mean() * 100) if net_inc is not None else 0
-            
-            # 2. مكرر الربحية والـ PEG
-            pe = info.get('trailingPE') or (info.get('currentPrice', 0) / info.get('trailingEps', 1))
-            peg = pe / eps_growth if eps_growth > 0 else 0
-            
-            # 3. الديون وحقوق الملكية
-            debt = safe_get(balance, 'Total Debt')
-            equity = safe_get(balance, 'Stockholders Equity')
+            # الحسابات
+            eps_g = (income.loc['Net Income'].pct_change(periods=-1).dropna().mean() * 100) if 'Net Income' in income.index else 0
+            pe = info.get('trailingPE') or (info.get('currentPrice', 1) / info.get('trailingEps', 1))
+            peg = pe / eps_g if eps_g > 0 else 0
+            debt = get_f(balance, 'Total Debt')
+            equity = get_f(balance, 'Stockholders Equity')
             de_ratio = (debt / equity * 100) if equity != 0 else 0
-            
-            # 4. النقد الصافي
-            cash = safe_get(balance, 'Cash And Cash Equivalents')
-            net_cash = cash - debt
-            
-            # 5. نمو المخزون مقابل المبيعات
-            rev_growth = (income.loc['Total Revenue'].pct_change(periods=-1).iloc[0] * 100) if 'Total Revenue' in income.index else 0
-            inv_growth = (balance.loc['Inventory'].pct_change(periods=-1).iloc[0] * 100) if 'Inventory' in balance.index else 0
-            
-            # 6. التدفق النقدي الحر
-            fcf = safe_get(cf, 'Free Cash Flow')
-            profit = safe_get(income, 'Net Income')
-            fcf_ratio = (fcf / profit) if profit != 0 else 0
+            net_cash = get_f(balance, 'Cash And Cash Equivalents') - debt
+            inv_g = (balance.loc['Inventory'].pct_change(periods=-1).iloc[0] * 100) if 'Inventory' in balance.index else 0
+            rev_g = (income.loc['Total Revenue'].pct_change(periods=-1).iloc[0] * 100) if 'Total Revenue' in income.index else 0
+            fcf_r = (get_f(cf, 'Free Cash Flow') / get_f(income, 'Net Income')) if get_f(income, 'Net Income') != 0 else 0
 
-            # بناء الجدول التوضيحي
-            results = [
-                {
-                    "المؤشر المالي": "نسبة PEG",
-                    "القيمة الحالية": f"{peg:.2f}",
-                    "طريقة الحساب": "P/E ÷ معدل النمو سنوي",
-                    "معيار لينش": "أقل من 1.0 (عادل) / 0.5 (لقطة)",
-                    "حالة السهم": "ممتاز ✅" if 0 < peg < 1 else "متضخم ❌"
-                },
-                {
-                    "المؤشر المالي": "نمو الأرباح (EPS)",
-                    "القيمة الحالية": f"{eps_growth:.1f}%",
-                    "طريقة الحساب": "متوسط نمو صافي الربح السنوي",
-                    "معيار لينش": "بين 20% و 25% (تجنب > 50%)",
-                    "حالة السهم": "مثالي ✅" if 15 < eps_growth < 35 else "خارج النطاق ⚠️"
-                },
-                {
-                    "المؤشر المالي": "الديون / الملكية",
-                    "القيمة الحالية": f"{de_ratio:.1f}%",
-                    "طريقة الحساب": "إجمالي الديون ÷ حقوق المساهمين",
-                    "معيار لينش": "أقل من 35% لأسهم النمو",
-                    "حالة السهم": "آمن ✅" if de_ratio < 35 else "مخاطرة ❌"
-                },
-                {
-                    "المؤشر المالي": "النقد الصافي",
-                    "القيمة الحالية": f"{net_cash:,.0f}",
-                    "طريقة الحساب": "إجمالي الكاش - إجمالي الديون",
-                    "معيار لينش": "قيمة موجبة (وسادة أمان)",
-                    "حالة السهم": "قوي ✅" if net_cash > 0 else "ضعيف ❌"
-                },
-                {
-                    "المؤشر المالي": "كفاءة المخزون",
-                    "القيمة الحالية": f"نمو {inv_growth:.1f}%",
-                    "طريقة الحساب": "مقارنة نمو المخزون بنمو المبيعات",
-                    "معيار لينش": "نمو المخزون < نمو المبيعات",
-                    "حالة السهم": "سليم ✅" if inv_growth < rev_growth else "ركود ⚠️"
-                },
-                {
-                    "المؤشر المالي": "جودة الأرباح",
-                    "القيمة الحالية": f"{fcf_ratio:.2f}",
-                    "طريقة الحساب": "التدفق النقدي الحر ÷ صافي الربح",
-                    "معيار لينش": "أكبر من 1.0 (أرباح حقيقية)",
-                    "حالة السهم": "جودة عالية ✅" if fcf_ratio > 1 else "أرباح ورقية ⚠️"
-                }
+            # 4. عرض البطاقات المتطورة
+            st.subheader(f"📊 تقرير السهم: {ticker}")
+            
+            metrics = [
+                ("نسبة PEG", f"{peg:.2f}", "P/E ÷ معدل النمو", "أقل من 1.0 (والأفضل < 0.5)", "تحدد ما إذا كنت تشتري النمو بسعر عادل أو متضخم."),
+                ("نمو الأرباح (EPS)", f"{eps_g:.1f}%", "متوسط نمو صافي الربح", "بين 20% و 25% (تجنب > 50%)", "الوقود المحرك لأسعار الأسهم على المدى الطويل."),
+                ("الديون / الملكية", f"{de_ratio:.1f}%", "إجمالي الدين ÷ حقوق المساهمين", "أقل من 35% لشركات النمو", "تضمن عدم إفلاس الشركة في حال تعثر الاقتصاد."),
+                ("النقد الصافي", f"{net_cash:,.0f}", "الكاش - إجمالي الديون", "قيمة موجبة (Net Cash Pos)", "يعمل كوسادة أمان ويقلل تكلفة السهم الفعلية."),
+                ("كفاءة المخزون", "سليم ✅" if inv_g < rev_g else "خطر ❌", "نمو المخزون vs نمو المبيعات", "نمو المخزون < نمو المبيعات", "تراكم المخزون أسرع من البيع يعني ضعف الطلب."),
+                ("جودة الأرباح (FCF)", f"{fcf_r:.2f}", "التدفق النقدي الحر ÷ الربح", "أكبر من 1.0", "تؤكد أن الأرباح 'كاش حقيقي' وليست مجرد محاسبة.")
             ]
 
-            st.table(pd.DataFrame(results))
-            
+            # توزيع البطاقات في 3 أعمدة
+            cols = st.columns(3)
+            for i, (title, val, calc, target, desc) in enumerate(metrics):
+                with cols[i % 3]:
+                    st.markdown(f"""
+                        <div class="metric-card">
+                            <div class="metric-title">{title}</div>
+                            <div class="metric-value">{val}</div>
+                            <div class="explanation">
+                                🧪 <b>الحساب:</b> {calc}<br>
+                                🎯 <span class="goal">المستهدف:</span> {target}<br>
+                                📖 <b>شرح:</b> {desc}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
     except Exception as e:
-        st.error(f"خطأ في معالجة السهم: {e}")
-        st.info("تأكد من إدخال رمز صحيح وتوفر بياناته المالية.")
+        st.error(f"⚠️ خطأ تقني: تأكد من أن السهم لديه قوائم مالية مكتملة.")
+
+st.sidebar.markdown("### 🧬 فلسفة بيتر لينش\nاستثمر فيما تفهمه، وابحث عن 'الأحجار الكريمة' قبل أن تكتشفها المؤسسات الكبرى.")
