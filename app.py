@@ -1,78 +1,117 @@
 import streamlit as st
 import yfinance as yf
 
-st.set_page_config(page_title="محلل لينش المالي", layout="wide")
+# إعدادات واجهة المستخدم
+st.set_page_config(page_title="محلل بيتر لينش المالي", layout="wide")
 
-st.title("📊 الفحص المالي الصارم لأسهم النمو (منهج بيتر لينش)")
-ticker = st.text_input("أدخل رمز السهم (مثال: 2222.SE أو NVDA)", value="AAPL")
+st.title("📊 الفحص المالي لأسهم النمو (منهج بيتر لينش)")
+st.write("أدخل رمز السهم (مثال: 7020 للأسهم السعودية أو NVDA للأمريكية)")
+
+# خانة الإدخال مع التصحيح التلقائي للرموز السعودية
+ticker_input = st.text_input("أدخل رمز السهم", value="7020")
+
+# معالجة الرمز تلقائياً
+if ticker_input.isdigit() and len(ticker_input) == 4:
+    ticker = f"{ticker_input}.SR"
+else:
+    ticker = ticker_input
 
 if st.button("تحليل المؤشرات المالية"):
     try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        
-        # 1. استخراج البيانات المالية الأساسية
-        peg = info.get('pegRatio')
-        pe = info.get('trailingPE')
-        growth = info.get('earningsQuarterlyGrowth', 0) * 100
-        debt_to_equity = info.get('debtToEquity')
-        cash = info.get('totalCashPerShare')
-        price = info.get('currentPrice')
+        with st.spinner(f'جاري فحص بيانات {ticker}...'):
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            
+            if not info or 'currentPrice' not in info:
+                st.error("❌ لم نتمكن من العثور على بيانات لهذا الرمز. تأكد من صحته (مثال: 7020 أو AAPL).")
+            else:
+                # 1. استخراج المؤشرات المالية
+                peg = info.get('pegRatio')
+                pe = info.get('trailingPE')
+                # نمو الأرباح المتوقع أو التاريخي
+                growth = info.get('earningsQuarterlyGrowth', 0)
+                if growth: growth *= 100 
+                
+                debt_to_equity = info.get('debtToEquity')
+                cash_per_share = info.get('totalCashPerShare')
+                price = info.get('currentPrice')
 
-        # 2. نظام النقاط المالي (من 100 نقطة)
-        score = 0
-        checks = []
+                # 2. نظام النقاط (100 نقطة)
+                score = 0
+                results = []
 
-        # المعيار 1: نسبة PEG (السعر مقابل النمو) - الوزن: 30 نقطة
-        if peg and peg < 1.0:
-            score += 30
-            checks.append(("✅ نسبة PEG", f"{peg}", "ممتاز: السهم يتداول بأقل من قيمة نموه."))
-        else:
-            checks.append(("❌ نسبة PEG", f"{peg}", "سيء: السعر مرتفع جداً مقارنة بمعدل النمو."))
+                # --- معيار 1: نسبة PEG (30 نقطة) ---
+                if peg and peg > 0:
+                    if peg < 1.0:
+                        score += 30
+                        results.append(("✅ نسبة PEG", f"{peg}", "ممتاز: سعر السهم رخيص مقارنة بنموه."))
+                    else:
+                        results.append(("❌ نسبة PEG", f"{peg}", "سيء: السعر متضخم مقارنة بالنمو المتوقع."))
+                else:
+                    results.append(("⚠️ نسبة PEG", "غير متوفرة", "لا توجد بيانات كافية لتقييم السعر مقابل النمو."))
 
-        # المعيار 2: نمو الأرباح (EPS Growth) - الوزن: 20 نقطة
-        if 15 <= growth <= 30:
-            score += 20
-            checks.append(("✅ نمو الأرباح", f"{growth:.1f}%", "مثالي: نمو قوي ومستدام (طابع أسهم النمو)."))
-        elif growth > 30:
-            score += 10
-            checks.append(("⚠️ نمو الأرباح", f"{growth:.1f}%", "تنبيه: نمو سريع جداً قد يكون غير مستدام."))
-        else:
-            checks.append(("❌ نمو الأرباح", f"{growth:.1f}%", "ضعيف: لا يصنف كأحد أسهم النمو السريع."))
+                # --- معيار 2: نمو الأرباح EPS (20 نقطة) ---
+                if growth and growth > 0:
+                    if 15 <= growth <= 30:
+                        score += 20
+                        results.append(("✅ نمو الأرباح", f"{growth:.1f}%", "مثالي: نمو قوي ومستدام (أحد أسهم النمو السريع)."))
+                    elif growth > 30:
+                        score += 10
+                        results.append(("⚠️ نمو الأرباح", f"{growth:.1f}%", "خطر: نمو سريع جداً قد لا يستمر."))
+                    else:
+                        results.append(("❌ نمو الأرباح", f"{growth:.1f}%", "ضعيف: نمو أقل من معايير بيتر لينش لأسهم النمو."))
+                else:
+                    results.append(("⚠️ نمو الأرباح", "غير متوفرة", "يجب مراجعة نمو الأرباح يدوياً من موقع 'أرقام'."))
 
-        # المعيار 3: الملاءة المالية (الديون) - الوزن: 20 نقطة
-        if debt_to_equity and debt_to_equity < 35:
-            score += 20
-            checks.append(("✅ نسبة الديون", f"{debt_to_equity}%", "ممتاز: ميزانية عمومية قوية جداً."))
-        else:
-            checks.append(("❌ نسبة الديون", f"{debt_to_equity}%", "خطر: ديون مرتفعة قد تسبب أزمة في الركود."))
+                # --- معيار 3: الديون (20 نقطة) ---
+                if debt_to_equity is not None:
+                    if debt_to_equity < 35:
+                        score += 20
+                        results.append(("✅ نسبة الديون", f"{debt_to_equity:.1f}%", "ممتاز: ميزانية قوية جداً وديون منخفضة."))
+                    else:
+                        results.append(("❌ نسبة الديون", f"{debt_to_equity:.1f}%", "خطر: ديون مرتفعة تزيد من مخاطر الإفلاس."))
+                else:
+                    results.append(("⚠️ الديون", "غير متوفرة", "تأكد من نسبة الديون يدوياً من القوائم المالية."))
 
-        # المعيار 4: مكرر الربحية (P/E) مقارنة بالنمو - الوزن: 15 نقطة
-        if pe and growth and pe < growth:
-            score += 15
-            checks.append(("✅ مكرر الربحية", f"{pe:.1f}", f"جيد: المكرر أقل من معدل النمو ({growth:.1f}%)."))
-        else:
-            checks.append(("❌ مكرر الربحية", f"{pe:.1f}", "سيء: المكرر أعلى من معدل النمو (تضخم سعري)."))
+                # --- معيار 4: P/E مقابل النمو (15 نقطة) ---
+                if pe and growth and growth > 0:
+                    if pe < growth:
+                        score += 15
+                        results.append(("✅ مكرر الربحية", f"{pe:.1f}", f"جيد: مكرر الربحية أقل من معدل النمو ({growth:.1f}%)."))
+                    else:
+                        results.append(("❌ مكرر الربحية", f"{pe:.1f}", "سيء: المكرر أعلى من معدل النمو."))
+                else:
+                    results.append(("⚠️ مكرر الربحية", "بيانات ناقصة", "لا يمكن المقارنة بين المكرر والنمو حالياً."))
 
-        # المعيار 5: النقد الصافي (Net Cash) - الوزن: 15 نقطة
-        if cash and price and (cash / price) > 0.10:
-            score += 15
-            checks.append(("✅ السيولة للنهم", f"{cash}$", "ممتاز: الشركة تملك كاش وفير لكل سهم (وسادة أمان)."))
-        else:
-            checks.append(("⚠️ السيولة", f"{cash}$", "مقبول: لا يوجد كاش استثنائي يحمي السهم."))
+                # --- معيار 5: السيولة النقدية (15 نقطة) ---
+                if cash_per_share and price:
+                    cash_ratio = (cash_per_share / price) * 100
+                    if cash_ratio > 10:
+                        score += 15
+                        results.append(("✅ السيولة", f"{cash_per_share}$", "ممتاز: الشركة تملك كاش وفير يحمي السهم."))
+                    else:
+                        results.append(("⚠️ السيولة", f"{cash_per_share}$", "عادية: لا يوجد فائض كاش استثنائي."))
 
-        # 3. عرض النتائج
-        st.header(f"إجمالي تقييم لينش المالي: {score}/100")
-        
-        if score >= 80: st.success("🎯 سهم نمو بامتياز (فرصة استثمارية قوية)")
-        elif score >= 50: st.warning("⚖️ سهم متوسط (يحتاج حذر في سعر الدخول)")
-        else: st.error("🛑 سهم لا يطابق شروط أسهم النمو")
+                # 3. عرض النتائج النهائية
+                st.divider()
+                st.header(f"النتيجة النهائية: {score} / 100")
+                
+                if score >= 75: st.success("🌟 سهم نمو واعد جداً (تطابق عالي مع معايير لينش)")
+                elif score >= 50: st.warning("⚖️ سهم متوسط (يتطلب دراسة نوعية أعمق)")
+                else: st.error("🛑 سهم لا يطابق شروط النمو السريع لبيتر لينش")
 
-        # عرض تفصيلي لكل مؤشر
-        for title, val, desc in checks:
-            with st.expander(title, expanded=True):
-                st.write(f"**القيمة الحالية:** {val}")
-                st.write(f"**تحليل لينش:** {desc}")
+                # عرض التفاصيل
+                st.subheader("تفاصيل فحص المؤشرات المالية:")
+                for title, val, desc in results:
+                    with st.expander(title, expanded=True):
+                        st.write(f"**القيمة المستخرجة:** {val}")
+                        st.write(f"**التحليل:** {desc}")
 
     except Exception as e:
-        st.error("فشل التحليل. تأكد من أن الرمز صحيح (مثل 1120.SE للراجحي أو MSFT لمايكروسوفت).")
+        st.error(f"فشل التحليل بسبب: {e}")
+        st.info("تأكد من كتابة الرمز بشكل صحيح. مثال: 7020 للسعودي، أو AAPL للأمريكي.")
+
+st.sidebar.markdown("""
+### 💡 نصيحة بيتر لينش:
+*البيانات المالية هي نصف القصة فقط. النصف الآخر هو أن تفهم ماذا تبيع الشركة ولماذا يحبها الناس.*
+""")
