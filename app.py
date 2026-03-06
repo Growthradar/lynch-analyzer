@@ -2,85 +2,94 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-st.set_page_config(page_title="محلل لينش الذاتي", layout="wide")
+st.set_page_config(page_title="محلل لينش الصارم", layout="wide")
+st.title("🎯 المحلل المالي لأسهم النمو (بيتر لينش)")
 
-st.title("🧮 المحلل المالي الذاتي (معادلات بيتر لينش)")
-st.write("تقوم الأداة بحساب المؤشرات آلياً من القوائم المالية الخام لآخر سنوات.")
+ticker_raw = st.text_input("أدخل رمز السهم (مثال: 7020 أو NVDA)", value="7020")
+ticker = f"{ticker_raw}.SR" if (ticker_raw.isdigit() and len(ticker_raw) == 4) else ticker_raw
 
-ticker_input = st.text_input("أدخل رمز السهم (مثلاً 7020 أو AAPL)", value="7020")
-ticker = f"{ticker_input}.SR" if (ticker_input.isdigit() and len(ticker_input) == 4) else ticker_input
-
-if st.button("تحليل القوائم المالية وحساب النقاط"):
+if st.button("بدء الفحص المالي المعمق"):
     try:
-        with st.spinner('جاري استخراج البيانات المالية وحساب المعادلات...'):
+        with st.spinner('جاري تحليل القوائم المالية...'):
             stock = yf.Ticker(ticker)
-            
-            # 1. جلب القوائم المالية (Income Statement & Balance Sheet)
-            income_stmt = stock.financials
-            balance_sheet = stock.balance_sheet
+            income = stock.financials
+            balance = stock.balance_sheet
+            cf = stock.cashflow
             info = stock.info
 
-            # --- أ. حساب معدل نمو الأرباح (EPS Growth) لآخر 3-4 سنوات ---
-            # نأخذ صافي الدخل (Net Income) ونحسب متوسط النمو السنوي
-            net_income = income_stmt.loc['Net Income']
-            growth_rates = net_income.pct_change(periods=-1).dropna() * 100
-            avg_growth = growth_rates.mean() # متوسط النمو التاريخي
-
-            # --- ب. حساب نسبة الدين إلى حقوق الملكية (D/E Ratio) ---
-            total_debt = balance_sheet.loc['Total Debt'][0] if 'Total Debt' in balance_sheet.index else 0
-            equity = balance_sheet.loc['Stockholders Equity'][0]
-            calc_de_ratio = (total_debt / equity) * 100
-
-            # --- ج. حساب مكرر الربحية (P/E) الحالي ---
-            current_price = info.get('currentPrice')
-            eps_trailing = info.get('trailingEps')
-            calc_pe = current_price / eps_trailing if eps_trailing else info.get('trailingPE')
-
-            # --- د. حساب نسبة PEG (المعادلة: P/E ÷ Growth) ---
-            calc_peg = calc_pe / avg_growth if (avg_growth and avg_growth > 0) else 0
-
-            # --- نظام النقاط التراكمي (100 نقطة) ---
-            score = 0
-            report = []
-
-            # تقييم PEG (30 نقطة)
-            if 0 < calc_peg < 1.0:
-                score += 30
-                report.append(("✅ نسبة PEG المحسوبة", f"{calc_peg:.2f}", "سعر ممتاز مقارنة بنمو الأرباح التاريخي."))
-            else:
-                report.append(("❌ نسبة PEG المحسوبة", f"{calc_peg:.2f}", "السعر متضخم (PEG > 1)."))
-
-            # تقييم النمو (25 نقطة)
-            if 15 <= avg_growth <= 30:
-                score += 25
-                report.append(("✅ متوسط نمو الأرباح", f"{avg_growth:.1f}%", "نمو مثالي ومستدام حسب معايير لينش."))
-            else:
-                report.append(("⚠️ نمو الأرباح", f"{avg_growth:.1f}%", "خارج النطاق المثالي لأسهم النمو السريع."))
-
-            # تقييم الديون (25 نقطة)
-            if calc_de_ratio < 35:
-                score += 25
-                report.append(("✅ نسبة الديون", f"{calc_de_ratio:.1f}%", "ميزانية قوية جداً (ديون منخفضة)."))
-            else:
-                report.append(("❌ نسبة الديون", f"{calc_de_ratio:.1f}%", "ديون مرتفعة تزيد المخاطر."))
-
-            # تقييم P/E مقابل النمو (20 نقطة)
-            if calc_pe < avg_growth:
-                score += 20
-                report.append(("✅ مكرر الربحية الحالي", f"{calc_pe:.1f}", f"المكرر أقل من معدل النمو ({avg_growth:.1f}%)."))
-            else:
-                report.append(("❌ مكرر الربحية الحالي", f"{calc_pe:.1f}", "المكرر أعلى من النمو."))
-
-            # عرض النتائج
-            st.divider()
-            st.header(f"النتيجة النهائية بناءً على الحسابات: {score} / 100")
+            # --- الحسابات المالية الدقيقة (Formulas) ---
             
-            cols = st.columns(2)
-            for i, (title, val, desc) in enumerate(report):
-                with cols[i % 2]:
-                    st.metric(title, val)
-                    st.caption(desc)
+            # 1. نمو الأرباح (EPS Growth) - متوسط آخر 3 سنوات
+            eps_growth = (income.loc['Net Income'].pct_change(periods=-1).dropna().mean() * 100)
+            
+            # 2. نسبة PEG (P/E / Growth)
+            pe = info.get('trailingPE') or (info.get('currentPrice') / info.get('trailingEps', 1))
+            peg = pe / eps_growth if eps_growth > 0 else 0
+            
+            # 3. نسبة الدين إلى حقوق المساهمين (D/E)
+            total_debt = balance.loc['Total Debt'].iloc[0] if 'Total Debt' in balance.index else 0
+            equity = balance.loc['Stockholders Equity'].iloc[0]
+            de_ratio = (total_debt / equity) * 100
+            
+            # 4. النقد الصافي (Net Cash)
+            cash = balance.loc['Cash And Cash Equivalents'].iloc[0]
+            net_cash = cash - total_debt
+            market_cap = info.get('marketCap', 1)
+            net_cash_pct = (net_cash / market_cap) * 100
+            
+            # 5. اختبار المخزون مقابل المبيعات
+            rev_growth = (income.loc['Total Revenue'].pct_change(periods=-1).iloc[0] * 100)
+            inv_growth = 0
+            if 'Inventory' in balance.index:
+                inv_growth = (balance.loc['Inventory'].pct_change(periods=-1).iloc[0] * 100)
+            
+            # 6. التدفق النقدي الحر (Free Cash Flow) مقابل الأرباح
+            latest_fcf = cf.loc['Free Cash Flow'].iloc[0] if 'Free Cash Flow' in cf.index else 0
+            latest_profit = income.loc['Net Income'].iloc[0]
+            fcf_to_profit = latest_fcf / latest_profit if latest_profit != 0 else 0
+
+            # --- نظام التقييم بالنقاط (100 نقطة) ---
+            score = 0
+            analysis = []
+
+            # تقييم PEG (20 نقطة)
+            if 0 < peg < 0.5: score += 20; analysis.append(("✅ PEG (لقطة)", f"{peg:.2f}", "سعر مذهل مقارنة بالنمو."))
+            elif peg < 1.0: score += 15; analysis.append(("✅ PEG (عادل)", f"{peg:.2f}", "سعر عادل للنمو."))
+            else: analysis.append(("❌ PEG (متضخم)", f"{peg:.2f}", "السعر يسبق النمو بكثير."))
+
+            # تقييم النمو (20 نقطة)
+            if 15 <= eps_growth <= 30: score += 20; analysis.append(("✅ نمو الأرباح", f"{eps_growth:.1f}%", "نمو مثالي ومستدام."))
+            elif eps_growth > 50: score += 5; analysis.append(("⚠️ نمو مفرط", f"{eps_growth:.1f}%", "خطر! النمو العالي جداً يجذب المنافسين."))
+            else: analysis.append(("❌ نمو ضعيف", f"{eps_growth:.1f}%", "لا يصنف كـ 'سهم نمو سريع'."))
+
+            # تقييم الديون (20 نقطة)
+            if de_ratio < 35: score += 20; analysis.append(("✅ الديون/حقوق الملكية", f"{de_ratio:.1f}%", "ميزانية قوية وآمنة."))
+            else: analysis.append(("❌ ديون مرتفعة", f"{de_ratio:.1f}%", "تجاوز الحد الآمن لشركات النمو."))
+
+            # تقييم النقد الصافي (15 نقطة)
+            if net_cash > 0: score += 15; analysis.append(("✅ النقد الصافي", "إيجابي", f"تمتلك كاش يتجاوز ديونها بـ {net_cash/1e6:.1f}M."))
+            else: analysis.append(("⚠️ نقد صافي سالـب", "سلبي", "الديون تتجاوز الكاش المتوفر."))
+
+            # تقييم المخزون (15 نقطة)
+            if inv_growth < rev_growth: score += 15; analysis.append(("✅ حركة المخزون", "سليمة", "المبيعات تسبق المخزون (طلب قوي)."))
+            else: analysis.append(("❌ تراكم المخزون", "خطر", "المخزون ينمو أسرع من المبيعات (ركود بضاعة)."))
+
+            # تقييم التدفق النقدي (10 نقاط)
+            if fcf_to_profit > 1: score += 10; analysis.append(("✅ جودة الأرباح", "حقيقية", "التدفق النقدي الحر أعلى من الأرباح الورقية."))
+            else: analysis.append(("⚠️ جودة الأرباح", "محاسبية", "الأرباح الورقية أعلى من الكاش الحقيقي المولد."))
+
+            # --- عرض النتائج النهائية ---
+            st.header(f"النتيجة النهائية: {score} / 100")
+            if score >= 80: st.success("🌟 سهم نمو بامتياز (Tenbagger)")
+            elif score >= 50: st.warning("⚖️ سهم متوسط - يحتاج لمراجعة نوعية")
+            else: st.error("🛑 سهم لا يطابق معايير بيتر لينش")
+
+            # عرض النتائج في بطاقات
+            cols = st.columns(3)
+            for i, (title, val, desc) in enumerate(analysis):
+                with cols[i % 3]:
+                    st.info(f"**{title}**\n\nالقيمة: {val}\n\n{desc}")
 
     except Exception as e:
-        st.error(f"حدث خطأ في الحسابات: {e}")
-        st.info("تأكد من توفر القوائم المالية للسهم المختار لآخر سنتين على الأقل.")
+        st.error(f"حدث خطأ في جلب البيانات: {e}")
+        st.info("تأكد من توفر القوائم المالية الكاملة لهذا السهم.")
